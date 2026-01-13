@@ -1,0 +1,44 @@
+# Binaries for programs
+*.exe
+*.darwin
+*.linux
+*.windows
+
+# Test binary, generated with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with `-o` flag
+*.out
+
+# Dependency directories (golang can generate these as go/pkg or vendor)
+vendor/
+pkg/
+
+# Go module cache and checksum files
+# These are typically handled by `go mod tidy` and not committed.
+go.mod
+go.sum
+
+# Environment variables file
+.env
+.env.*
+
+# Editor-specific files
+.idea/
+.vscode/
+
+# Build artifacts for Docker
+target/
+dist/
+
+# Logs
+*.log
+
+# Docker Compose specific files (if you have multiple compose files)
+# docker-compose.override.yml
+
+# Application configuration file - should not be checked in
+config.yaml
+
+# Docker compose file - should not be checked in (use sample.docker-compose.yml)
+docker-compose.yml

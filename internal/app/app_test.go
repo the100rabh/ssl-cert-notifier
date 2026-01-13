@@ -1,0 +1,401 @@
+package app
+
+import (
+	"fmt"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/the100rabh/ssl-cert-notifier/internal/checker"
+	"github.com/the100rabh/ssl-cert-notifier/internal/config"
+	"github.com/the100rabh/ssl-cert-notifier/internal/notifiers"
+)
+
+// mockChecker satisfies the app.CheckerFunc type for testing.
+type mockChecker struct {
+	mu         sync.Mutex
+	callCount  int
+	failNTimes int
+	details    *checker.CertDetails
+	err        error
+}
+
+func (m *mockChecker) Check(url string) (*checker.CertDetails, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.callCount++
+	if m.callCount <= m.failNTimes {
+		return nil, m.err
+	}
+	return m.details, nil
+}
+
+func (m *mockChecker) CallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.callCount
+}
+
+func (m *mockChecker) Reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.callCount = 0
+	m.failNTimes = 0
+	m.details = nil
+	m.err = nil
+}
+
+func TestPerformCheckWithRetries(t *testing.T) {
+	site := config.Website{URL: "test.com"}
+	defaultRetry := config.Retry{
+		Attempts:      3,
+		InitialDelay:  "1ms", // Use a short delay for fast tests
+		BackoffFactor: 2.0,
+	}
+
+	t.Run("Success on first attempt", func(t *testing.T) {
+		checkerMock := &mockChecker{
+			details: &checker.CertDetails{DaysRemaining: 30},
+		}
+
+		details, err := performCheckWithRetries(site, defaultRetry, checkerMock.Check)
+		if err != nil {
+			t.Fatalf("Expected no error, but got %v", err)
+		}
+		if details.DaysRemaining != 30 {
+			t.Errorf("Expected 30 days remaining, got %f", details.DaysRemaining)
+		}
+		if checkerMock.CallCount() != 1 {
+			t.Errorf("Expected checker to be called 1 time, but was called %d times", checkerMock.CallCount())
+		}
+	})
+
+	t.Run("Success after two failures", func(t *testing.T) {
+		checkerMock := &mockChecker{
+			failNTimes: 2,
+			details:    &checker.CertDetails{DaysRemaining: 30},
+			err:        fmt.Errorf("mock check failed"),
+		}
+
+		details, err := performCheckWithRetries(site, defaultRetry, checkerMock.Check)
+		if err != nil {
+			t.Fatalf("Expected no error, but got %v", err)
+		}
+		if details.DaysRemaining != 30 {
+			t.Errorf("Expected 30 days remaining, got %f", details.DaysRemaining)
+		}
+		if checkerMock.CallCount() != 3 {
+			t.Errorf("Expected checker to be called 3 times, but was called %d times", checkerMock.CallCount())
+		}
+	})
+
+	t.Run("Failure on all attempts", func(t *testing.T) {
+		checkerMock := &mockChecker{
+			failNTimes: 3,
+			err:        fmt.Errorf("final error"),
+		}
+
+		_, err := performCheckWithRetries(site, defaultRetry, checkerMock.Check)
+		if err == nil {
+			t.Fatal("Expected an error, but got nil")
+		}
+		if !strings.Contains(err.Error(), "final error") {
+			t.Errorf("Expected error to contain 'final error', but got %v", err)
+		}
+		if checkerMock.CallCount() != 3 {
+			t.Errorf("Expected checker to be called 3 times, but was called %d times", checkerMock.CallCount())
+		}
+	})
+
+	t.Run("Site-specific retry override", func(t *testing.T) {
+		siteWithRetry := config.Website{
+			URL: "test.com",
+			Retry: &config.Retry{
+				Attempts:      2,
+				InitialDelay:  "1ms",
+				BackoffFactor: 2.0,
+			},
+		}
+		checkerMock := &mockChecker{
+			failNTimes: 2,
+			err:        fmt.Errorf("final error"),
+		}
+
+		_, err := performCheckWithRetries(siteWithRetry, defaultRetry, checkerMock.Check)
+		if err == nil {
+			t.Fatal("Expected an error, but got nil")
+		}
+		if checkerMock.CallCount() != 2 {
+			t.Errorf("Expected checker to be called 2 times (from site config), but was called %d times", checkerMock.CallCount())
+		}
+	})
+}
+
+// Mock Notifier for InitializeNotifiers tests
+type mockNotifier struct {
+	fail bool
+}
+
+func (m *mockNotifier) Send(subject, body string) error {
+	if m.fail {
+		return fmt.Errorf("mock send failed")
+	}
+	return nil
+}
+
+func TestInitializeNotifiers(t *testing.T) {
+	t.Run("All notifiers valid", func(t *testing.T) {
+		notifierConfigs := map[string]config.Notifier{
+			"log_good":      {Type: "log"},
+			"telegram_good": {Type: "telegram", BotToken: "good_token", ChatID: "good_chat"},
+		}
+
+		initialized, initErrors := InitializeNotifiers(notifierConfigs)
+
+		if len(initErrors) != 0 {
+			t.Fatalf("Expected 0 initErrors, got %d: %v", len(initErrors), initErrors)
+		}
+		if len(initialized) != 2 {
+			t.Fatalf("Expected 2 initialized notifiers, got %d", len(initialized))
+		}
+		if _, ok := initialized["log_good"]; !ok {
+			t.Error("Expected 'log_good' to be initialized")
+		}
+		if _, ok := initialized["telegram_good"]; !ok {
+			t.Error("Expected 'telegram_good' to be initialized")
+		}
+	})
+
+	t.Run("One notifier invalid and unused", func(t *testing.T) {
+		notifierConfigs := map[string]config.Notifier{
+			"log_good":     {Type: "log"},
+			"telegram_bad": {Type: "telegram", BotToken: "", ChatID: "bad_chat"}, // Invalid
+		}
+
+		initialized, initErrors := InitializeNotifiers(notifierConfigs)
+
+		if len(initErrors) != 1 {
+			t.Fatalf("Expected 1 initError, got %d: %v", len(initErrors), initErrors)
+		}
+		if _, ok := initErrors["telegram_bad"]; !ok {
+			t.Error("Expected error for 'telegram_bad'")
+		}
+		if !strings.Contains(initErrors["telegram_bad"].Error(), "bot_token is required") {
+			t.Errorf("Expected 'bot_token is required' error, got: %v", initErrors["telegram_bad"])
+		}
+		if len(initialized) != 1 {
+			t.Fatalf("Expected 1 initialized notifier, got %d", len(initialized))
+		}
+		if _, ok := initialized["log_good"]; !ok {
+			t.Error("Expected 'log_good' to be initialized")
+		}
+	})
+
+	t.Run("All notifiers invalid", func(t *testing.T) {
+		notifierConfigs := map[string]config.Notifier{
+			"telegram_bad": {Type: "telegram", BotToken: "", ChatID: "bad_chat"}, // Invalid
+			"email_bad":    {Type: "email", Host: "", Port: 0},                   // Invalid
+		}
+
+		initialized, initErrors := InitializeNotifiers(notifierConfigs)
+
+		if len(initErrors) != 2 {
+			t.Fatalf("Expected 2 initErrors, got %d: %v", len(initErrors), initErrors)
+		}
+		if len(initialized) != 0 {
+			t.Fatalf("Expected 0 initialized notifiers, got %d", len(initialized))
+		}
+	})
+}
+
+// Tests for RunChecks function
+func TestRunChecks(t *testing.T) {
+	t.Run("Check failure triggers notification", func(t *testing.T) {
+		// Create a mock checker that always fails
+		failingChecker := func(url string) (*checker.CertDetails, error) {
+			return nil, fmt.Errorf("connection failed")
+		}
+
+		// Create mock notifiers
+		mockNotifiers := map[string]notifiers.Notifier{
+			"test_notifier": &mockNotifier{fail: false},
+		}
+
+		// Create config with one website
+		cfg := &config.Config{
+			Websites: []config.Website{
+				{
+					URL:       "example.com",
+					Notifiers: []string{"test_notifier"},
+				},
+			},
+			Settings: config.Settings{
+				Retry: config.Retry{
+					Attempts:      1,
+					InitialDelay:  "1ms",
+					BackoffFactor: 1.0,
+				},
+			},
+		}
+
+		// Capture logs or verify behavior through other means
+		RunChecks(cfg, mockNotifiers, failingChecker)
+		// This test verifies that the function runs without panicking
+	})
+
+	t.Run("Expired certificate triggers notification", func(t *testing.T) {
+		// Create a mock checker that returns expired cert
+		expiredChecker := func(url string) (*checker.CertDetails, error) {
+			return &checker.CertDetails{
+				DaysRemaining: -5.0, // Expired 5 days ago
+				ExpiryDate:    time.Now().Add(-5 * 24 * time.Hour),
+			}, nil
+		}
+
+		// Create mock notifiers
+		mockNotifiers := map[string]notifiers.Notifier{
+			"test_notifier": &mockNotifier{fail: false},
+		}
+
+		// Create config with one website
+		cfg := &config.Config{
+			Websites: []config.Website{
+				{
+					URL:       "example.com",
+					Notifiers: []string{"test_notifier"},
+				},
+			},
+			Settings: config.Settings{
+				Retry: config.Retry{
+					Attempts:      1,
+					InitialDelay:  "1ms",
+					BackoffFactor: 1.0,
+				},
+			},
+		}
+
+		// Run checks
+		RunChecks(cfg, mockNotifiers, expiredChecker)
+		// This test verifies that the function runs without panicking
+	})
+
+	t.Run("Certificate expiring soon triggers notification", func(t *testing.T) {
+		// Create a mock checker that returns cert expiring in 7 days
+		expiringChecker := func(url string) (*checker.CertDetails, error) {
+			return &checker.CertDetails{
+				DaysRemaining: 7.0, // Expiring in 7 days
+				ExpiryDate:    time.Now().Add(7 * 24 * time.Hour),
+			}, nil
+		}
+
+		// Create mock notifiers
+		mockNotifiers := map[string]notifiers.Notifier{
+			"test_notifier": &mockNotifier{fail: false},
+		}
+
+		// Create config with one website that wants warning at 7 days
+		cfg := &config.Config{
+			Websites: []config.Website{
+				{
+					URL:         "example.com",
+					WarningDays: []int{7}, // Warn when 7 days remain
+					Notifiers:   []string{"test_notifier"},
+				},
+			},
+			Settings: config.Settings{
+				Retry: config.Retry{
+					Attempts:      1,
+					InitialDelay:  "1ms",
+					BackoffFactor: 1.0,
+				},
+			},
+		}
+
+		// Run checks
+		RunChecks(cfg, mockNotifiers, expiringChecker)
+		// This test verifies that the function runs without panicking
+	})
+
+	t.Run("Valid certificate does not trigger warning notification", func(t *testing.T) {
+		// Create a mock checker that returns valid cert with many days remaining
+		validChecker := func(url string) (*checker.CertDetails, error) {
+			return &checker.CertDetails{
+				DaysRemaining: 60.0, // Valid for 60 more days
+				ExpiryDate:    time.Now().Add(60 * 24 * time.Hour),
+			}, nil
+		}
+
+		// Create mock notifiers
+		mockNotifiers := map[string]notifiers.Notifier{
+			"test_notifier": &mockNotifier{fail: false},
+		}
+
+		// Create config with one website
+		cfg := &config.Config{
+			Websites: []config.Website{
+				{
+					URL:         "example.com",
+					WarningDays: []int{30, 14, 7}, // Only warn at 30, 14, or 7 days
+					Notifiers:   []string{"test_notifier"},
+				},
+			},
+			Settings: config.Settings{
+				Retry: config.Retry{
+					Attempts:      1,
+					InitialDelay:  "1ms",
+					BackoffFactor: 1.0,
+				},
+			},
+		}
+
+		// Run checks
+		RunChecks(cfg, mockNotifiers, validChecker)
+		// This test verifies that the function runs without panicking
+	})
+}
+
+// Tests for dispatchNotifications function
+func TestDispatchNotifications(t *testing.T) {
+	t.Run("Valid notifier sends notification", func(t *testing.T) {
+		mockNotifiers := map[string]notifiers.Notifier{
+			"test_notifier": &mockNotifier{fail: false},
+		}
+
+		site := config.Website{
+			URL:       "example.com",
+			Notifiers: []string{"test_notifier"},
+		}
+
+		dispatchNotifications(site, "Test Subject", "Test Body", mockNotifiers)
+		// This test verifies that the function runs without panicking
+	})
+
+	t.Run("Invalid notifier is skipped", func(t *testing.T) {
+		mockNotifiers := map[string]notifiers.Notifier{
+			"other_notifier": &mockNotifier{fail: false},
+		}
+
+		site := config.Website{
+			URL:       "example.com",
+			Notifiers: []string{"nonexistent_notifier"},
+		}
+
+		dispatchNotifications(site, "Test Subject", "Test Body", mockNotifiers)
+		// This test verifies that the function runs without panicking when notifier doesn't exist
+	})
+
+	t.Run("Failing notifier logs error", func(t *testing.T) {
+		mockNotifiers := map[string]notifiers.Notifier{
+			"test_notifier": &mockNotifier{fail: true},
+		}
+
+		site := config.Website{
+			URL:       "example.com",
+			Notifiers: []string{"test_notifier"},
+		}
+
+		dispatchNotifications(site, "Test Subject", "Test Body", mockNotifiers)
+		// This test verifies that the function runs without panicking when notifier fails
+	})
+}

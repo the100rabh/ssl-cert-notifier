@@ -1,0 +1,59 @@
+# Global settings for the application
+settings:
+  # How often to run the checks (e.g., "24h", "1h", "30m")
+  check_interval: "24h"
+  # Default retry mechanism for sites that don't override it
+  retry:
+    attempts: 3
+    # Initial delay before retrying (e.g., "30s", "1m")
+    initial_delay: "30s"
+    # Factor by which to multiply the delay for each subsequent retry
+    backoff_factor: 2.0
+
+# All available notification channels are defined here
+notifiers:
+  # An example of a Telegram notifier
+  telegram_personal:
+    type: telegram
+    # Placeholder: Replace with your actual Telegram Bot Token
+    bot_token: "your_telegram_bot_token_here"
+    # Placeholder: Replace with your actual Telegram Chat ID
+    chat_id: "your_telegram_chat_id_here"
+
+  # An example of an email notifier
+  email_alerts:
+    type: email
+    host: "smtp.example.com" # Placeholder: Replace with your SMTP host
+    port: 587
+    # Placeholder: Replace with your SMTP username
+    username: "your_smtp_username_here"
+    # Placeholder: Replace with your SMTP password
+    password: "your_smtp_password_here"
+    from: "ssl-notifier@example.com" # Placeholder: Replace with your From address
+    to:
+      - "alerts@example.com" # Placeholder: Replace with your To address
+
+# A list of websites to monitor for SSL certificate expiry
+websites:
+  - url: "google.com:443"
+    # Specific warning periods for this site. If omitted, a global default could be used.
+    warning_days: [60, 30, 15, 7, 3, 1]
+    # List of notifiers to use for this site, referencing the keys from the 'notifiers' block
+    notifiers:
+      - "telegram_personal"
+      - "email_alerts"
+
+  - url: "expired.badssl.com:443"
+    warning_days: [1]
+    notifiers:
+      - "telegram_personal"
+
+  - url: "wrong.host.badssl.com:443"
+    warning_days: [1]
+    notifiers:
+      - "telegram_personal"
+    # Override global retry settings for this specific site
+    retry:
+      attempts: 5
+      initial_delay: "10s"
+      backoff_factor: 1.5

@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  ssl-cert-notifier:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ssl-cert-notifier
+    # Mount the config.yaml from the host into the container
+    volumes:
+      - ./config.yaml:/root/config.yaml:ro
+    # These environment variables should be set in the host environment
+    # where docker-compose is run, or directly in the (git-ignored) config.yaml.
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
