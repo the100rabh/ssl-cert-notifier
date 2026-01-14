@@ -14,11 +14,6 @@
 vendor/
 pkg/
 
-# Go module cache and checksum files
-# These are typically handled by `go mod tidy` and not committed.
-go.mod
-go.sum
-
 # Environment variables file
 .env
 .env.*
