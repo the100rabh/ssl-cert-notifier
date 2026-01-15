@@ -5,7 +5,7 @@ A Go-based application to monitor SSL certificates for multiple websites. It not
 ## Features
 
 -   **Certificate Monitoring:** Checks SSL certificates for configured websites.
--   **Configurable Expiry Warnings:** Notifies based on a list of configurable warning days before expiry.
+-   **Configurable Expiry Warnings:** Notifies if the number of days left for certificate expiry is less than or equal to a configured threshold.
 -   **Multiple Notification Channels:** Extensible notifier system (currently supports Telegram, Email, HTTP webhooks, and logging).
 -   **Retry Mechanism:** Configurable retry attempts with exponential backoff for failed checks.
 -   **Scheduled Checks:** Runs checks at a defined interval (e.g., every 24 hours).
@@ -70,18 +70,18 @@ These instructions will get you a copy of the project up and running on your loc
 
     websites:
       - url: "google.com:443"
-        warning_days: [60, 30, 15, 7, 3, 1] # Specific warning periods for this site
+        days_until_expiry: 30 # Notify if days left for expiry is less than or equal to this value
         notifiers:
           - "telegram_personal"
           - "email_alerts"
 
       - url: "expired.badssl.com:443"
-        warning_days: [1]
+        days_until_expiry: 1
         notifiers:
           - "telegram_personal"
 
       - url: "wrong.host.badssl.com:443"
-        warning_days: [1]
+        days_until_expiry: 1
         notifiers:
           - "telegram_personal"
         retry: # Override global retry settings for this specific site

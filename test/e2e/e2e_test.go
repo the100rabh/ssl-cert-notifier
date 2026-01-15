@@ -87,19 +87,19 @@ func TestE2E_CertificateChecks(t *testing.T) {
 		},
 		Websites: []config.Website{
 			{
-				URL:         "google.com", // This should succeed without notification
-				WarningDays: []int{1},
-				Notifiers:   []string{"e2e_http"},
+				URL:             "google.com", // This should succeed without notification
+				DaysUntilExpiry: 0,
+				Notifiers:       []string{"e2e_http"},
 			},
 			{
-				URL:         "expired.badssl.com", // This should trigger an "expired" notification
-				WarningDays: []int{1},
-				Notifiers:   []string{"e2e_http"},
+				URL:             "expired.badssl.com", // This should trigger an "expired" notification
+				DaysUntilExpiry: 1,
+				Notifiers:       []string{"e2e_http"},
 			},
 			{
-				URL:         "192.0.2.2:443", // This host should fail, triggering a "failed" notification
-				WarningDays: []int{1},
-				Notifiers:   []string{"e2e_http"},
+				URL:             "192.0.2.2:443", // This host should fail, triggering a "failed" notification
+				DaysUntilExpiry: 1,
+				Notifiers:       []string{"e2e_http"},
 			},
 		},
 	}

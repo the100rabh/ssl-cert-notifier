@@ -134,14 +134,25 @@ func TestPerformCheckWithRetries(t *testing.T) {
 
 // Mock Notifier for InitializeNotifiers tests
 type mockNotifier struct {
-	fail bool
+	fail      bool
+	mu        sync.Mutex
+	callCount int
 }
 
 func (m *mockNotifier) Send(subject, body string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.callCount++
 	if m.fail {
 		return fmt.Errorf("mock send failed")
 	}
 	return nil
+}
+
+func (m *mockNotifier) CallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.callCount
 }
 
 func TestInitializeNotifiers(t *testing.T) {
@@ -217,9 +228,9 @@ func TestRunChecks(t *testing.T) {
 			return nil, fmt.Errorf("connection failed")
 		}
 
-		// Create mock notifiers
+		notifier := &mockNotifier{fail: false}
 		mockNotifiers := map[string]notifiers.Notifier{
-			"test_notifier": &mockNotifier{fail: false},
+			"test_notifier": notifier,
 		}
 
 		// Create config with one website
@@ -239,9 +250,13 @@ func TestRunChecks(t *testing.T) {
 			},
 		}
 
-		// Capture logs or verify behavior through other means
+		// Run checks
 		RunChecks(cfg, mockNotifiers, failingChecker)
-		// This test verifies that the function runs without panicking
+
+		// Assert that a notification was sent
+		if notifier.CallCount() != 1 {
+			t.Errorf("Expected 1 notification to be sent, but got %d", notifier.CallCount())
+		}
 	})
 
 	t.Run("Expired certificate triggers notification", func(t *testing.T) {
@@ -253,9 +268,9 @@ func TestRunChecks(t *testing.T) {
 			}, nil
 		}
 
-		// Create mock notifiers
+		notifier := &mockNotifier{fail: false}
 		mockNotifiers := map[string]notifiers.Notifier{
-			"test_notifier": &mockNotifier{fail: false},
+			"test_notifier": notifier,
 		}
 
 		// Create config with one website
@@ -277,7 +292,11 @@ func TestRunChecks(t *testing.T) {
 
 		// Run checks
 		RunChecks(cfg, mockNotifiers, expiredChecker)
-		// This test verifies that the function runs without panicking
+
+		// Assert that a notification was sent
+		if notifier.CallCount() != 1 {
+			t.Errorf("Expected 1 notification to be sent, but got %d", notifier.CallCount())
+		}
 	})
 
 	t.Run("Certificate expiring soon triggers notification", func(t *testing.T) {
@@ -289,18 +308,18 @@ func TestRunChecks(t *testing.T) {
 			}, nil
 		}
 
-		// Create mock notifiers
+		notifier := &mockNotifier{fail: false}
 		mockNotifiers := map[string]notifiers.Notifier{
-			"test_notifier": &mockNotifier{fail: false},
+			"test_notifier": notifier,
 		}
 
 		// Create config with one website that wants warning at 7 days
 		cfg := &config.Config{
 			Websites: []config.Website{
 				{
-					URL:         "example.com",
-					WarningDays: []int{7}, // Warn when 7 days remain
-					Notifiers:   []string{"test_notifier"},
+					URL:             "example.com",
+					DaysUntilExpiry: 7, // Warn when 7 days remain
+					Notifiers:       []string{"test_notifier"},
 				},
 			},
 			Settings: config.Settings{
@@ -314,7 +333,11 @@ func TestRunChecks(t *testing.T) {
 
 		// Run checks
 		RunChecks(cfg, mockNotifiers, expiringChecker)
-		// This test verifies that the function runs without panicking
+
+		// Assert that a notification was sent
+		if notifier.CallCount() != 1 {
+			t.Errorf("Expected 1 notification to be sent, but got %d", notifier.CallCount())
+		}
 	})
 
 	t.Run("Valid certificate does not trigger warning notification", func(t *testing.T) {
@@ -326,18 +349,18 @@ func TestRunChecks(t *testing.T) {
 			}, nil
 		}
 
-		// Create mock notifiers
+		notifier := &mockNotifier{fail: false}
 		mockNotifiers := map[string]notifiers.Notifier{
-			"test_notifier": &mockNotifier{fail: false},
+			"test_notifier": notifier,
 		}
 
 		// Create config with one website
 		cfg := &config.Config{
 			Websites: []config.Website{
 				{
-					URL:         "example.com",
-					WarningDays: []int{30, 14, 7}, // Only warn at 30, 14, or 7 days
-					Notifiers:   []string{"test_notifier"},
+					URL:             "example.com",
+					DaysUntilExpiry: 30, // Only warn at 30 days or less
+					Notifiers:       []string{"test_notifier"},
 				},
 			},
 			Settings: config.Settings{
@@ -351,7 +374,11 @@ func TestRunChecks(t *testing.T) {
 
 		// Run checks
 		RunChecks(cfg, mockNotifiers, validChecker)
-		// This test verifies that the function runs without panicking
+
+		// Assert that no notification was sent
+		if notifier.CallCount() != 0 {
+			t.Errorf("Expected 0 notifications to be sent, but got %d", notifier.CallCount())
+		}
 	})
 }
 

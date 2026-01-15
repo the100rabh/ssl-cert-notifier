@@ -37,19 +37,19 @@ notifiers:
 websites:
   - url: "google.com:443"
     # Specific warning periods for this site. If omitted, a global default could be used.
-    warning_days: [60, 30, 15, 7, 3, 1]
+    days_until_expiry: 30
     # List of notifiers to use for this site, referencing the keys from the 'notifiers' block
     notifiers:
       - "telegram_personal"
       - "email_alerts"
 
   - url: "expired.badssl.com:443"
-    warning_days: [1]
+    days_until_expiry: 1
     notifiers:
       - "telegram_personal"
 
   - url: "wrong.host.badssl.com:443"
-    warning_days: [1]
+    days_until_expiry: 1
     notifiers:
       - "telegram_personal"
     # Override global retry settings for this specific site

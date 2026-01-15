@@ -48,7 +48,7 @@ type Notifier struct {
 // Website defines a site to be monitored
 type Website struct {
 	URL         string   `yaml:"url"`
-	WarningDays []int    `yaml:"warning_days"`
+	DaysUntilExpiry int      `yaml:"days_until_expiry"`
 	Notifiers   []string `yaml:"notifiers"`
 	Retry       *Retry   `yaml:"retry,omitempty"` // Pointer to allow for nil when not overridden
 }

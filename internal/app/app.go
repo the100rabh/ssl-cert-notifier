@@ -24,6 +24,7 @@ func RunChecks(cfg *config.Config, initializedNotifiers map[string]notifiers.Not
 
 		// Handle check failure
 		if err != nil {
+			log.Printf("Dispatching notifications for %s...", site.URL)
 			subject := fmt.Sprintf("SSL Check Failed for %s", site.URL)
 			body := fmt.Sprintf("Failed to check SSL certificate for %s after multiple retries.\n\nError: %v", site.URL, err)
 			dispatchNotifications(site, subject, body, initializedNotifiers)
@@ -32,6 +33,7 @@ func RunChecks(cfg *config.Config, initializedNotifiers map[string]notifiers.Not
 
 		// Handle expired certificates
 		if details.DaysRemaining <= 0 {
+			log.Printf("Dispatching notifications for %s...", site.URL)
 			subject := fmt.Sprintf("SSL Certificate Expired for %s", site.URL)
 			body := fmt.Sprintf("The SSL certificate for %s expired %.2f days ago.\nExpiry Date: %s",
 				site.URL, -details.DaysRemaining, details.ExpiryDate.Format("2006-01-02"))
@@ -41,15 +43,14 @@ func RunChecks(cfg *config.Config, initializedNotifiers map[string]notifiers.Not
 
 		// Handle certificates nearing expiry
 		var notified bool
-		for _, days := range site.WarningDays {
-			if int(math.Floor(details.DaysRemaining)) == days {
-				subject := fmt.Sprintf("SSL Certificate for %s is expiring soon", site.URL)
-				body := fmt.Sprintf("The SSL certificate for %s is expiring in %d days.\nExpiry Date: %s",
-					site.URL, days, details.ExpiryDate.Format("2006-01-02"))
-				dispatchNotifications(site, subject, body, initializedNotifiers)
-				notified = true
-				break // Send only one notification per check
-			}
+		if details.DaysRemaining <= float64(site.DaysUntilExpiry) {
+			log.Printf("Dispatching notifications for %s...", site.URL)
+			daysRemaining := int(math.Floor(details.DaysRemaining))
+			subject := fmt.Sprintf("SSL Certificate for %s is expiring soon", site.URL)
+			body := fmt.Sprintf("The SSL certificate for %s is expiring in %d days.\nExpiry Date: %s",
+				site.URL, daysRemaining, details.ExpiryDate.Format("2006-01-02"))
+			dispatchNotifications(site, subject, body, initializedNotifiers)
+			notified = true
 		}
 
 		if !notified {
@@ -78,7 +79,6 @@ func InitializeNotifiers(notifierConfigs map[string]config.Notifier) (map[string
 }
 
 func dispatchNotifications(site config.Website, subject, body string, initializedNotifiers map[string]notifiers.Notifier) {
-	log.Printf("Dispatching notifications for %s...", site.URL)
 	for _, notifierName := range site.Notifiers {
 		notifier, ok := initializedNotifiers[notifierName]
 		if !ok {
