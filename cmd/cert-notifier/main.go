@@ -7,6 +7,7 @@ import (
 	"github.com/the100rabh/ssl-cert-notifier/internal/app"
 	"github.com/the100rabh/ssl-cert-notifier/internal/checker"
 	"github.com/the100rabh/ssl-cert-notifier/internal/config"
+	yaml "gopkg.in/yaml.v3"
 )
 
 func main() {
@@ -15,7 +16,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("FATAL: Failed to load configuration: %v", err)
 	}
-	log.Println("Configuration loaded successfully.")
+	yamlCfg, err := yaml.Marshal(cfg)
+	if err != nil {
+		log.Printf("WARNING: Could not marshal configuration to YAML for pretty printing: %v", err)
+		log.Printf("Configuration loaded as follows: %+v", cfg) // Fallback to default print
+	} else {
+		log.Printf("Configuration loaded as follows:\n%s", string(yamlCfg))
+	}
 
 	// Initialize all configured notifiers
 	initializedNotifiers, initErrors := app.InitializeNotifiers(cfg.Notifiers)
