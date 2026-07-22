@@ -1,11 +1,14 @@
 package notifiers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +17,19 @@ import (
 )
 
 func TestTelegramNotifier_Send(t *testing.T) {
+	// Clean up any leftover queue files from previous test runs
+	os.Remove(".pending_telegram_queue.json")
+
+	// Create a temporary directory for test queue files
+	tmpDir, err := os.MkdirTemp("", "telegram-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	t.Cleanup(func() {
+		os.RemoveAll(tmpDir)
+		os.Remove(".pending_telegram_queue.json")
+	})
+
 	testBotToken := "test_bot_token"
 	testChatID := "test_chat_id"
 	testSubject := "Test Subject"
@@ -50,9 +66,10 @@ func TestTelegramNotifier_Send(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create notifier: %v", err)
 		}
+		notifier.SetQueueFilePath(filepath.Join(tmpDir, "send_success.json"))
 		notifier.telegramAPIBaseURL = server.URL // Override for testing
 
-		err = notifier.Send(testSubject, testBody)
+		err = notifier.Send(context.Background(), testSubject, testBody)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -69,9 +86,10 @@ func TestTelegramNotifier_Send(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create notifier: %v", err)
 		}
+		nnotifier.SetQueueFilePath(filepath.Join(tmpDir, "send_api_error.json"))
 		nnotifier.telegramAPIBaseURL = server.URL // Override for testing
 
-		err = nnotifier.Send(testSubject, testBody)
+		err = nnotifier.Send(context.Background(), testSubject, testBody)
 		if err == nil {
 			t.Fatal("Expected an error, got nil")
 		}
@@ -81,20 +99,68 @@ func TestTelegramNotifier_Send(t *testing.T) {
 	})
 
 	t.Run("Send network error", func(t *testing.T) {
-		nnotifier, err := NewTelegramNotifier(config.Notifier{BotToken: testBotToken, ChatID: testChatID})
+		notifier, err := NewTelegramNotifier(config.Notifier{BotToken: testBotToken, ChatID: testChatID})
 		if err != nil {
 			t.Fatalf("Failed to create notifier: %v", err)
 		}
-		// Point to an unreachable address and set a short timeout to force network error
-		nnotifier.telegramAPIBaseURL = "http://127.0.0.1:0" // Unreachable
-		nnotifier.Client.Timeout = 1 * time.Millisecond     // Short timeout
+		notifier.SetQueueFilePath(filepath.Join(tmpDir, "send_network_error.json"))
+		notifier.telegramAPIBaseURL = "http://127.0.0.1:0" // Unreachable
+		notifier.Client.Timeout = 1 * time.Millisecond     // Short timeout
+		notifier.InitialDelay = 1 * time.Millisecond
 
-		err = nnotifier.Send(testSubject, testBody)
+		err = notifier.Send(context.Background(), testSubject, testBody)
 		if err == nil {
 			t.Fatal("Expected a network error, got nil")
 		}
 		if !strings.Contains(err.Error(), "timeout") && !strings.Contains(err.Error(), "connection refused") && !strings.Contains(err.Error(), "dial") {
 			t.Errorf("Expected a network error, got %v", err)
+		}
+		if len(notifier.GetPendingMessages()) != 1 {
+			t.Errorf("Expected 1 pending message queued, got %d", len(notifier.GetPendingMessages()))
+		}
+	})
+
+	t.Run("Queue and flush when network recovers", func(t *testing.T) {
+		var receivedCount int
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedCount++
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintln(w, `{"ok":true}`)
+		}))
+		defer server.Close()
+
+		notifier, err := NewTelegramNotifier(config.Notifier{BotToken: testBotToken, ChatID: testChatID})
+		if err != nil {
+			t.Fatalf("Failed to create notifier: %v", err)
+		}
+		notifier.SetQueueFilePath(filepath.Join(tmpDir, "queue_and_flush.json"))
+		notifier.InitialDelay = 1 * time.Millisecond
+		// Start unreachable
+		notifier.telegramAPIBaseURL = "http://127.0.0.1:0"
+		notifier.Client.Timeout = 1 * time.Millisecond
+
+		_ = notifier.Send(context.Background(), "Failed Msg 1", "Body 1")
+		_ = notifier.Send(context.Background(), "Failed Msg 2", "Body 2")
+
+		if len(notifier.GetPendingMessages()) != 2 {
+			t.Fatalf("Expected 2 pending messages queued, got %d", len(notifier.GetPendingMessages()))
+		}
+
+		// Network recovers
+		notifier.telegramAPIBaseURL = server.URL
+		notifier.Client.Timeout = 5 * time.Second
+
+		err = notifier.Flush(context.Background())
+		if err != nil {
+			t.Fatalf("Expected Flush to succeed after network recovery, got %v", err)
+		}
+
+		if len(notifier.GetPendingMessages()) != 0 {
+			t.Errorf("Expected 0 pending messages after flush, got %d", len(notifier.GetPendingMessages()))
+		}
+
+		if receivedCount != 2 {
+			t.Errorf("Expected mock server to receive 2 messages, got %d", receivedCount)
 		}
 	})
 }

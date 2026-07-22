@@ -1,6 +1,7 @@
 package checker
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -10,7 +11,7 @@ func TestCheckValidCertificate(t *testing.T) {
 	t.Parallel()
 	// Use a reliable domain with a valid SSL certificate
 	url := "google.com:443"
-	details, err := Check(url)
+	details, err := Check(context.Background(), url)
 	if err != nil {
 		t.Fatalf("Check(%s) failed: %v", url, err)
 	}
@@ -90,7 +91,7 @@ func TestBadSSLCertificates(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			details, err := Check(tc.url)
+			details, err := Check(context.Background(), tc.url)
 
 			if tc.expectError {
 				if err == nil {
@@ -131,7 +132,7 @@ func TestNetworkErrors(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := Check(tc.url)
+			_, err := Check(context.Background(), tc.url)
 			if err == nil {
 				t.Fatalf("Expected an error but got nil")
 			}
@@ -154,7 +155,7 @@ func TestCheckSplitHostPort(t *testing.T) {
 	t.Parallel()
 	// Test a URL without a port specified
 	url := "example.com"
-	details, err := Check(url)
+	details, err := Check(context.Background(), url)
 	if err != nil {
 		t.Fatalf("Check(%s) failed: %v", url, err)
 	}

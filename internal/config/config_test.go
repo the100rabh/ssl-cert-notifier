@@ -221,3 +221,102 @@ func TestEnvVarExpansion(t *testing.T) {
 		}
 	})
 }
+
+func TestCheckTimeParsing(t *testing.T) {
+	t.Run("CheckTime in future today", func(t *testing.T) {
+		settings := Settings{CheckTime: "14:30"}
+		now := time.Date(2026, 7, 21, 10, 0, 0, 0, time.UTC)
+		nextRun, err := settings.GetNextCheckTime(now)
+		if err != nil {
+			t.Fatalf("GetNextCheckTime failed: %v", err)
+		}
+		expected := time.Date(2026, 7, 21, 14, 30, 0, 0, time.UTC)
+		if !nextRun.Equal(expected) {
+			t.Errorf("Expected next run at %v, got %v", expected, nextRun)
+		}
+
+		duration, err := settings.GetCheckTimeDuration(now)
+		if err != nil {
+			t.Fatalf("GetCheckTimeDuration failed: %v", err)
+		}
+		if duration != 4*time.Hour+30*time.Minute {
+			t.Errorf("Expected duration 4h30m, got %v", duration)
+		}
+	})
+
+	t.Run("CheckTime in past today schedules for tomorrow", func(t *testing.T) {
+		settings := Settings{CheckTime: "09:00"}
+		now := time.Date(2026, 7, 21, 10, 0, 0, 0, time.UTC)
+		nextRun, err := settings.GetNextCheckTime(now)
+		if err != nil {
+			t.Fatalf("GetNextCheckTime failed: %v", err)
+		}
+		expected := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+		if !nextRun.Equal(expected) {
+			t.Errorf("Expected next run at %v, got %v", expected, nextRun)
+		}
+	})
+
+	t.Run("CheckTime 12-hour AM/PM format", func(t *testing.T) {
+		settings := Settings{CheckTime: "2:30 PM"}
+		now := time.Date(2026, 7, 21, 10, 0, 0, 0, time.UTC)
+		nextRun, err := settings.GetNextCheckTime(now)
+		if err != nil {
+			t.Fatalf("GetNextCheckTime failed: %v", err)
+		}
+		expected := time.Date(2026, 7, 21, 14, 30, 0, 0, time.UTC)
+		if !nextRun.Equal(expected) {
+			t.Errorf("Expected next run at %v, got %v", expected, nextRun)
+		}
+	})
+
+	t.Run("CheckTime with seconds format", func(t *testing.T) {
+		settings := Settings{CheckTime: "14:30:45"}
+		now := time.Date(2026, 7, 21, 10, 0, 0, 0, time.UTC)
+		nextRun, err := settings.GetNextCheckTime(now)
+		if err != nil {
+			t.Fatalf("GetNextCheckTime failed: %v", err)
+		}
+		expected := time.Date(2026, 7, 21, 14, 30, 45, 0, time.UTC)
+		if !nextRun.Equal(expected) {
+			t.Errorf("Expected next run at %v, got %v", expected, nextRun)
+		}
+	})
+
+	t.Run("Empty CheckTime returns zero time", func(t *testing.T) {
+		settings := Settings{CheckTime: ""}
+		now := time.Now()
+		nextRun, err := settings.GetNextCheckTime(now)
+		if err != nil {
+			t.Fatalf("Unexpected error for empty CheckTime: %v", err)
+		}
+		if !nextRun.IsZero() {
+			t.Errorf("Expected zero time for empty CheckTime, got %v", nextRun)
+		}
+
+		duration, err := settings.GetCheckTimeDuration(now)
+		if err != nil {
+			t.Fatalf("Unexpected error for empty CheckTime duration: %v", err)
+		}
+		if duration != 0 {
+			t.Errorf("Expected 0 duration for empty CheckTime, got %v", duration)
+		}
+	})
+
+	t.Run("Invalid CheckTime format returns error", func(t *testing.T) {
+		settings := Settings{CheckTime: "invalid-time-format"}
+		now := time.Now()
+		_, err := settings.GetNextCheckTime(now)
+		if err == nil {
+			t.Fatal("Expected error for invalid CheckTime format, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid check_time format") {
+			t.Errorf("Expected 'invalid check_time format' error, got: %v", err)
+		}
+
+		_, err = settings.GetCheckTimeDuration(now)
+		if err == nil {
+			t.Fatal("Expected error for invalid CheckTime duration, got nil")
+		}
+	})
+}

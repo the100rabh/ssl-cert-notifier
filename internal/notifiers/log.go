@@ -1,6 +1,9 @@
 package notifiers
 
-import "log"
+import (
+	"context"
+	"log"
+)
 
 // LogNotifier is a simple notifier that writes messages to the log.
 type LogNotifier struct{}
@@ -11,7 +14,7 @@ func NewLogNotifier() (*LogNotifier, error) {
 }
 
 // Send prints the notification message to the standard log.
-func (n *LogNotifier) Send(subject, body string) error {
+func (n *LogNotifier) Send(ctx context.Context, subject, body string) error {
 	log.Printf("--- NOTIFICATION ---")
 	log.Printf("Subject: %s", subject)
 	log.Printf("Body: %s", body)

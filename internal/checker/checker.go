@@ -1,9 +1,11 @@
 package checker
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -14,7 +16,14 @@ type CertDetails struct {
 }
 
 // Check performs a TLS connection to the given URL and returns the certificate details.
-func Check(url string) (*CertDetails, error) {
+func Check(ctx context.Context, url string) (*CertDetails, error) {
+	// Remove scheme if present (e.g., "https://")
+	if idx := strings.Index(url, "://"); idx != -1 {
+		url = url[idx+3:]
+	}
+	// Also strip any leading/trailing whitespace
+	url = strings.TrimSpace(url)
+
 	// Ensure the URL has a port. Default to 443 if not present.
 	host, port, err := net.SplitHostPort(url)
 	if err != nil {
@@ -25,23 +34,31 @@ func Check(url string) (*CertDetails, error) {
 	}
 	dialAddr := net.JoinHostPort(host, port)
 
-	// We use tls.DialWithDialer to set a timeout for the connection attempt.
-	dialer := &net.Dialer{
+	// We use tls.Dialer to set a timeout and context for the connection attempt.
+	netDialer := &net.Dialer{
 		Timeout: 10 * time.Second,
 	}
+	tlsDialer := &tls.Dialer{
+		NetDialer: netDialer,
+		Config: &tls.Config{
+			// We don't need to verify the certificate chain here because we are
+			// interested in the certificate itself, even if it's invalid.
+			InsecureSkipVerify: true,
+		},
+	}
 
-	conn, err := tls.DialWithDialer(dialer, "tcp", dialAddr, &tls.Config{
-		// We don't need to verify the certificate chain here because we are
-		// interested in the certificate itself, even if it's invalid (e.g., expired, wrong host).
-		InsecureSkipVerify: true,
-	})
+	conn, err := tlsDialer.DialContext(ctx, "tcp", dialAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to %s: %w", dialAddr, err)
 	}
-	defer conn.Close()
+	tlsConn, ok := conn.(*tls.Conn)
+	if !ok {
+		return nil, fmt.Errorf("connection is not a TLS connection")
+	}
+	defer tlsConn.Close()
 
 	// Get the peer certificates from the connection state.
-	certs := conn.ConnectionState().PeerCertificates
+	certs := tlsConn.ConnectionState().PeerCertificates
 	if len(certs) == 0 {
 		return nil, fmt.Errorf("no certificates found for %s", dialAddr)
 	}

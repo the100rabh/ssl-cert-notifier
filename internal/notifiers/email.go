@@ -1,6 +1,7 @@
 package notifiers
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -97,12 +98,12 @@ func (d *DefaultDialer) Dial(network, address string) (net.Conn, error) {
 }
 
 // Send sends the message via SMTP.
-func (n *EmailNotifier) Send(subject, body string) error {
-	return n.SendWithDeps(subject, body, &DefaultDialer{&net.Dialer{Timeout: 10 * time.Second}}, &RealSMTPClientFactory{})
+func (n *EmailNotifier) Send(ctx context.Context, subject, body string) error {
+	return n.SendWithDeps(ctx, subject, body, &DefaultDialer{&net.Dialer{Timeout: 10 * time.Second}}, &RealSMTPClientFactory{})
 }
 
 // SendWithDeps allows dependency injection for testing
-func (n *EmailNotifier) SendWithDeps(subject, body string, dialer Dialer, clientFactory SMTPClientFactory) error {
+func (n *EmailNotifier) SendWithDeps(ctx context.Context, subject, body string, dialer Dialer, clientFactory SMTPClientFactory) error {
 	// Create the email message
 	headers := make(map[string]string)
 	headers["From"] = n.From

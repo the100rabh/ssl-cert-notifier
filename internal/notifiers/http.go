@@ -2,6 +2,7 @@ package notifiers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -36,7 +37,7 @@ func NewHTTPNotifier(cfg config.Notifier) (*HTTPNotifier, error) {
 }
 
 // Send sends the message to the configured HTTP endpoint.
-func (n *HTTPNotifier) Send(subject, body string) error {
+func (n *HTTPNotifier) Send(ctx context.Context, subject, body string) error {
 	payload := NotificationPayload{
 		Subject: subject,
 		Body:    body,
@@ -47,7 +48,7 @@ func (n *HTTPNotifier) Send(subject, body string) error {
 		return fmt.Errorf("failed to marshal http notification payload: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", n.URL, bytes.NewBuffer(payloadBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", n.URL, bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		return fmt.Errorf("failed to create http request: %w", err)
 	}

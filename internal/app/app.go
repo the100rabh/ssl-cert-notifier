@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math"
@@ -12,22 +13,30 @@ import (
 )
 
 // CheckerFunc defines the signature for a function that can check a URL's SSL certificate.
-type CheckerFunc func(url string) (*checker.CertDetails, error)
+type CheckerFunc func(ctx context.Context, url string) (*checker.CertDetails, error)
 
 // RunChecks iterates through websites and checks their SSL certificates
-func RunChecks(cfg *config.Config, initializedNotifiers map[string]notifiers.Notifier, checkFunc CheckerFunc) {
+func RunChecks(ctx context.Context, cfg *config.Config, initializedNotifiers map[string]notifiers.Notifier, checkFunc CheckerFunc) {
+	// Attempt to flush any previously failed notifications stored during network outages
+	FlushPendingNotifications(ctx, initializedNotifiers)
+
 	log.Printf("Found %d websites to check.", len(cfg.Websites))
 	for _, site := range cfg.Websites {
+		if ctx.Err() != nil {
+			log.Printf("INFO: Context cancelled, aborting remaining website checks.")
+			return
+		}
+
 		log.Printf("Checking SSL certificate for %s...", site.URL)
 
-		details, err := performCheckWithRetries(site, cfg.Settings.Retry, checkFunc)
+		details, err := performCheckWithRetries(ctx, site, cfg.Settings.Retry, checkFunc)
 
 		// Handle check failure
 		if err != nil {
 			log.Printf("Dispatching notifications for %s...", site.URL)
 			subject := fmt.Sprintf("SSL Check Failed for %s", site.URL)
 			body := fmt.Sprintf("Failed to check SSL certificate for %s after multiple retries.\n\nError: %v", site.URL, err)
-			dispatchNotifications(site, subject, body, initializedNotifiers)
+			dispatchNotifications(ctx, site, subject, body, initializedNotifiers)
 			continue
 		}
 
@@ -37,7 +46,7 @@ func RunChecks(cfg *config.Config, initializedNotifiers map[string]notifiers.Not
 			subject := fmt.Sprintf("SSL Certificate Expired for %s", site.URL)
 			body := fmt.Sprintf("The SSL certificate for %s expired %.2f days ago.\nExpiry Date: %s",
 				site.URL, -details.DaysRemaining, details.ExpiryDate.Format("2006-01-02"))
-			dispatchNotifications(site, subject, body, initializedNotifiers)
+			dispatchNotifications(ctx, site, subject, body, initializedNotifiers)
 			continue
 		}
 
@@ -49,13 +58,25 @@ func RunChecks(cfg *config.Config, initializedNotifiers map[string]notifiers.Not
 			subject := fmt.Sprintf("SSL Certificate for %s is expiring soon", site.URL)
 			body := fmt.Sprintf("The SSL certificate for %s is expiring in %d days.\nExpiry Date: %s",
 				site.URL, daysRemaining, details.ExpiryDate.Format("2006-01-02"))
-			dispatchNotifications(site, subject, body, initializedNotifiers)
+			dispatchNotifications(ctx, site, subject, body, initializedNotifiers)
 			notified = true
 		}
 
 		if !notified {
 			log.Printf("SUCCESS: Certificate for %s is valid. Expires in %.2f days (Expiry Date: %s)",
 				site.URL, details.DaysRemaining, details.ExpiryDate.Format("2006-01-02"))
+		}
+	}
+}
+
+// FlushPendingNotifications attempts to deliver any previously failed alert messages stored in notifier queues.
+func FlushPendingNotifications(ctx context.Context, initializedNotifiers map[string]notifiers.Notifier) {
+	for name, notifier := range initializedNotifiers {
+		if flusher, ok := notifier.(notifiers.Flusher); ok {
+			err := flusher.Flush(ctx)
+			if err != nil {
+				log.Printf("WARN: Notifier '%s' has pending notifications that could not be sent yet: %v", name, err)
+			}
 		}
 	}
 }
@@ -78,14 +99,14 @@ func InitializeNotifiers(notifierConfigs map[string]config.Notifier) (map[string
 	return initialized, errors
 }
 
-func dispatchNotifications(site config.Website, subject, body string, initializedNotifiers map[string]notifiers.Notifier) {
+func dispatchNotifications(ctx context.Context, site config.Website, subject, body string, initializedNotifiers map[string]notifiers.Notifier) {
 	for _, notifierName := range site.Notifiers {
 		notifier, ok := initializedNotifiers[notifierName]
 		if !ok {
 			log.Printf("ERROR: Notifier '%s' for site %s is not defined or initialized. Skipping notification.", notifierName, site.URL)
 			continue
 		}
-		err := notifier.Send(subject, body)
+		err := notifier.Send(ctx, subject, body)
 		if err != nil {
 			log.Printf("ERROR: Failed to send notification via '%s' for site %s: %v", notifierName, site.URL, err)
 		}
@@ -93,7 +114,7 @@ func dispatchNotifications(site config.Website, subject, body string, initialize
 }
 
 // performCheckWithRetries wraps the check function with retry logic.
-func performCheckWithRetries(site config.Website, defaultRetry config.Retry, checkFunc CheckerFunc) (*checker.CertDetails, error) {
+func performCheckWithRetries(ctx context.Context, site config.Website, defaultRetry config.Retry, checkFunc CheckerFunc) (*checker.CertDetails, error) {
 	var attempts int
 	var initialDelay time.Duration
 	var backoffFactor float64
@@ -113,7 +134,13 @@ func performCheckWithRetries(site config.Website, defaultRetry config.Retry, che
 
 	var lastErr error
 	for i := 0; i < attempts; i++ {
-		details, err := checkFunc(site.URL) // Use the passed-in check function
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		details, err := checkFunc(ctx, site.URL) // Use the passed-in check function with context
 		if err == nil {
 			return details, nil
 		}
@@ -125,9 +152,14 @@ func performCheckWithRetries(site config.Website, defaultRetry config.Retry, che
 			break
 		}
 
-		waitDuration := float64(initialDelay) * math.Pow(backoffFactor, float64(i))
-		log.Printf("Waiting for %v before next retry...", time.Duration(waitDuration))
-		time.Sleep(time.Duration(waitDuration))
+		waitDuration := time.Duration(float64(initialDelay) * math.Pow(backoffFactor, float64(i)))
+		log.Printf("Waiting for %v before next retry...", waitDuration)
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(waitDuration):
+		}
 	}
 
 	return nil, lastErr

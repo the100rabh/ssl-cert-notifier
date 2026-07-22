@@ -7,7 +7,8 @@ A Go-based application to monitor SSL certificates for multiple websites. It not
 -   **Certificate Monitoring:** Checks SSL certificates for configured websites.
 -   **Configurable Expiry Warnings:** Notifies if the number of days left for certificate expiry is less than or equal to a configured threshold.
 -   **Multiple Notification Channels:** Extensible notifier system (currently supports Telegram, Email, HTTP webhooks, and logging).
--   **Retry Mechanism:** Configurable retry attempts with exponential backoff for failed checks.
+-   **Retry Mechanism:** Configurable retry attempts with exponential backoff for failed checks and alert notifications.
+-   **Offline Alert Queueing:** Failed alert notifications (e.g., Telegram, Email, HTTP) during network outages are queued and automatically delivered when network connectivity recovers.
 -   **Scheduled Checks:** Runs checks at a defined interval (e.g., every 24 hours).
 -   **Docker Compose Deployment:** Easy to set up and run using `docker-compose`.
 -   **Environment Variable Support:** Sensitive credentials can be managed via environment variables.
@@ -43,6 +44,7 @@ These instructions will get you a copy of the project up and running on your loc
     # config.yaml
     settings:
       check_interval: "24h" # How often to run checks (e.g., "1h", "30m")
+      check_time: "09:00"    # Specific daily time to run checks (e.g., "09:00", "14:30")
       retry:
         attempts: 3
         initial_delay: "30s" # Initial delay before retrying (e.g., "30s", "1m")

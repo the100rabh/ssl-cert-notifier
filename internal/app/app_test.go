@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -21,7 +22,7 @@ type mockChecker struct {
 	err        error
 }
 
-func (m *mockChecker) Check(url string) (*checker.CertDetails, error) {
+func (m *mockChecker) Check(ctx context.Context, url string) (*checker.CertDetails, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.callCount++
@@ -59,7 +60,7 @@ func TestPerformCheckWithRetries(t *testing.T) {
 			details: &checker.CertDetails{DaysRemaining: 30},
 		}
 
-		details, err := performCheckWithRetries(site, defaultRetry, checkerMock.Check)
+		details, err := performCheckWithRetries(context.Background(), site, defaultRetry, checkerMock.Check)
 		if err != nil {
 			t.Fatalf("Expected no error, but got %v", err)
 		}
@@ -78,7 +79,7 @@ func TestPerformCheckWithRetries(t *testing.T) {
 			err:        fmt.Errorf("mock check failed"),
 		}
 
-		details, err := performCheckWithRetries(site, defaultRetry, checkerMock.Check)
+		details, err := performCheckWithRetries(context.Background(), site, defaultRetry, checkerMock.Check)
 		if err != nil {
 			t.Fatalf("Expected no error, but got %v", err)
 		}
@@ -96,7 +97,7 @@ func TestPerformCheckWithRetries(t *testing.T) {
 			err:        fmt.Errorf("final error"),
 		}
 
-		_, err := performCheckWithRetries(site, defaultRetry, checkerMock.Check)
+		_, err := performCheckWithRetries(context.Background(), site, defaultRetry, checkerMock.Check)
 		if err == nil {
 			t.Fatal("Expected an error, but got nil")
 		}
@@ -122,7 +123,7 @@ func TestPerformCheckWithRetries(t *testing.T) {
 			err:        fmt.Errorf("final error"),
 		}
 
-		_, err := performCheckWithRetries(siteWithRetry, defaultRetry, checkerMock.Check)
+		_, err := performCheckWithRetries(context.Background(), siteWithRetry, defaultRetry, checkerMock.Check)
 		if err == nil {
 			t.Fatal("Expected an error, but got nil")
 		}
@@ -139,7 +140,7 @@ type mockNotifier struct {
 	callCount int
 }
 
-func (m *mockNotifier) Send(subject, body string) error {
+func (m *mockNotifier) Send(ctx context.Context, subject, body string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.callCount++
@@ -224,7 +225,7 @@ func TestInitializeNotifiers(t *testing.T) {
 func TestRunChecks(t *testing.T) {
 	t.Run("Check failure triggers notification", func(t *testing.T) {
 		// Create a mock checker that always fails
-		failingChecker := func(url string) (*checker.CertDetails, error) {
+		failingChecker := func(ctx context.Context, url string) (*checker.CertDetails, error) {
 			return nil, fmt.Errorf("connection failed")
 		}
 
@@ -251,7 +252,7 @@ func TestRunChecks(t *testing.T) {
 		}
 
 		// Run checks
-		RunChecks(cfg, mockNotifiers, failingChecker)
+		RunChecks(context.Background(), cfg, mockNotifiers, failingChecker)
 
 		// Assert that a notification was sent
 		if notifier.CallCount() != 1 {
@@ -261,7 +262,7 @@ func TestRunChecks(t *testing.T) {
 
 	t.Run("Expired certificate triggers notification", func(t *testing.T) {
 		// Create a mock checker that returns expired cert
-		expiredChecker := func(url string) (*checker.CertDetails, error) {
+		expiredChecker := func(ctx context.Context, url string) (*checker.CertDetails, error) {
 			return &checker.CertDetails{
 				DaysRemaining: -5.0, // Expired 5 days ago
 				ExpiryDate:    time.Now().Add(-5 * 24 * time.Hour),
@@ -291,7 +292,7 @@ func TestRunChecks(t *testing.T) {
 		}
 
 		// Run checks
-		RunChecks(cfg, mockNotifiers, expiredChecker)
+		RunChecks(context.Background(), cfg, mockNotifiers, expiredChecker)
 
 		// Assert that a notification was sent
 		if notifier.CallCount() != 1 {
@@ -301,7 +302,7 @@ func TestRunChecks(t *testing.T) {
 
 	t.Run("Certificate expiring soon triggers notification", func(t *testing.T) {
 		// Create a mock checker that returns cert expiring in 7 days
-		expiringChecker := func(url string) (*checker.CertDetails, error) {
+		expiringChecker := func(ctx context.Context, url string) (*checker.CertDetails, error) {
 			return &checker.CertDetails{
 				DaysRemaining: 7.0, // Expiring in 7 days
 				ExpiryDate:    time.Now().Add(7 * 24 * time.Hour),
@@ -332,7 +333,7 @@ func TestRunChecks(t *testing.T) {
 		}
 
 		// Run checks
-		RunChecks(cfg, mockNotifiers, expiringChecker)
+		RunChecks(context.Background(), cfg, mockNotifiers, expiringChecker)
 
 		// Assert that a notification was sent
 		if notifier.CallCount() != 1 {
@@ -342,7 +343,7 @@ func TestRunChecks(t *testing.T) {
 
 	t.Run("Valid certificate does not trigger warning notification", func(t *testing.T) {
 		// Create a mock checker that returns valid cert with many days remaining
-		validChecker := func(url string) (*checker.CertDetails, error) {
+		validChecker := func(ctx context.Context, url string) (*checker.CertDetails, error) {
 			return &checker.CertDetails{
 				DaysRemaining: 60.0, // Valid for 60 more days
 				ExpiryDate:    time.Now().Add(60 * 24 * time.Hour),
@@ -373,7 +374,7 @@ func TestRunChecks(t *testing.T) {
 		}
 
 		// Run checks
-		RunChecks(cfg, mockNotifiers, validChecker)
+		RunChecks(context.Background(), cfg, mockNotifiers, validChecker)
 
 		// Assert that no notification was sent
 		if notifier.CallCount() != 0 {
@@ -394,7 +395,7 @@ func TestDispatchNotifications(t *testing.T) {
 			Notifiers: []string{"test_notifier"},
 		}
 
-		dispatchNotifications(site, "Test Subject", "Test Body", mockNotifiers)
+		dispatchNotifications(context.Background(), site, "Test Subject", "Test Body", mockNotifiers)
 		// This test verifies that the function runs without panicking
 	})
 
@@ -408,7 +409,7 @@ func TestDispatchNotifications(t *testing.T) {
 			Notifiers: []string{"nonexistent_notifier"},
 		}
 
-		dispatchNotifications(site, "Test Subject", "Test Body", mockNotifiers)
+		dispatchNotifications(context.Background(), site, "Test Subject", "Test Body", mockNotifiers)
 		// This test verifies that the function runs without panicking when notifier doesn't exist
 	})
 
@@ -422,7 +423,37 @@ func TestDispatchNotifications(t *testing.T) {
 			Notifiers: []string{"test_notifier"},
 		}
 
-		dispatchNotifications(site, "Test Subject", "Test Body", mockNotifiers)
+		dispatchNotifications(context.Background(), site, "Test Subject", "Test Body", mockNotifiers)
 		// This test verifies that the function runs without panicking when notifier fails
 	})
+}
+
+type mockFlusherNotifier struct {
+	flushed bool
+}
+
+func (m *mockFlusherNotifier) Send(ctx context.Context, subject, body string) error {
+	return nil
+}
+
+func (m *mockFlusherNotifier) Flush() error {
+	m.flushed = true
+	return nil
+}
+
+func (m *mockFlusherNotifier) GetPendingMessages() []notifiers.PendingMessage {
+	return nil
+}
+
+func TestFlushPendingNotifications(t *testing.T) {
+	mockFlusher := &mockFlusherNotifier{flushed: true}
+	initializedNotifiers := map[string]notifiers.Notifier{
+		"flusher": mockFlusher,
+	}
+
+	FlushPendingNotifications(context.Background(), initializedNotifiers)
+
+	if !mockFlusher.flushed {
+		t.Error("Expected flusher notifier Flush method to be called")
+	}
 }

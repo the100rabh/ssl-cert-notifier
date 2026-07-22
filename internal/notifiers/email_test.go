@@ -1,6 +1,7 @@
 package notifiers
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -247,7 +248,7 @@ func TestEmailNotifier_SendWithDeps(t *testing.T) {
 		To:       []string{"to@example.com"},
 	}
 
-	err := notifier.SendWithDeps("Test Subject", "Test Body", mockDialer, mockFactory)
+	err := notifier.SendWithDeps(context.Background(), "Test Subject", "Test Body", mockDialer, mockFactory)
 	if err == nil {
 		t.Error("Expected error when dialer fails, but got nil")
 	}
@@ -325,7 +326,7 @@ func TestEmailNotifier_SendWithDeps_Comprehensive(t *testing.T) {
 		mockFactory := &mockSMTPClientFactory{shouldFail: true}
 		mockDialer := &mockSMTPDialer{shouldFail: false} // Dial should succeed, but client creation should fail
 
-		err := notifier.SendWithDeps("Test Subject", "Test Body", mockDialer, mockFactory)
+		err := notifier.SendWithDeps(context.Background(), "Test Subject", "Test Body", mockDialer, mockFactory)
 		if err == nil {
 			t.Error("Expected error when client factory fails, but got nil")
 		}
@@ -348,7 +349,7 @@ func TestEmailNotifier_SendWithDeps_Comprehensive(t *testing.T) {
 		mockFactory := &mockSMTPClientFactory{client: mockClient}
 		mockDialer := &mockSMTPDialer{shouldFail: false}
 
-		err := notifier.SendWithDeps("Test Subject", "Test Body", mockDialer, mockFactory)
+		err := notifier.SendWithDeps(context.Background(), "Test Subject", "Test Body", mockDialer, mockFactory)
 		if err == nil {
 			t.Error("Expected error when authentication fails, but got nil")
 		}
@@ -371,7 +372,7 @@ func TestEmailNotifier_SendWithDeps_Comprehensive(t *testing.T) {
 		mockFactory := &mockSMTPClientFactory{client: mockClient}
 		mockDialer := &mockSMTPDialer{shouldFail: false}
 
-		err := notifier.SendWithDeps("Test Subject", "Test Body", mockDialer, mockFactory)
+		err := notifier.SendWithDeps(context.Background(), "Test Subject", "Test Body", mockDialer, mockFactory)
 		if err == nil {
 			t.Error("Expected error when mail command fails, but got nil")
 		}
@@ -394,7 +395,7 @@ func TestEmailNotifier_SendWithDeps_Comprehensive(t *testing.T) {
 		mockFactory := &mockSMTPClientFactory{client: mockClient}
 		mockDialer := &mockSMTPDialer{shouldFail: false}
 
-		err := notifier.SendWithDeps("Test Subject", "Test Body", mockDialer, mockFactory)
+		err := notifier.SendWithDeps(context.Background(), "Test Subject", "Test Body", mockDialer, mockFactory)
 		if err == nil {
 			t.Error("Expected error when rcpt command fails, but got nil")
 		}
@@ -417,7 +418,7 @@ func TestEmailNotifier_SendWithDeps_Comprehensive(t *testing.T) {
 		mockFactory := &mockSMTPClientFactory{client: mockClient}
 		mockDialer := &mockSMTPDialer{shouldFail: false}
 
-		err := notifier.SendWithDeps("Test Subject", "Test Body", mockDialer, mockFactory)
+		err := notifier.SendWithDeps(context.Background(), "Test Subject", "Test Body", mockDialer, mockFactory)
 		if err == nil {
 			t.Error("Expected error when data command fails, but got nil")
 		}
@@ -443,7 +444,7 @@ func TestEmailNotifier_SendWithDeps_Comprehensive(t *testing.T) {
 		mockFactory := &mockSMTPClientFactory{client: mockClient}
 		mockDialer := &mockSMTPDialer{shouldFail: false}
 
-		err := notifier.SendWithDeps("Test Subject", "Test Body", mockDialer, mockFactory)
+		err := notifier.SendWithDeps(context.Background(), "Test Subject", "Test Body", mockDialer, mockFactory)
 		if err == nil {
 			t.Error("Expected error when TLS fails, but got nil")
 		}
@@ -464,7 +465,7 @@ func TestEmailNotifier_SendConnectionError(t *testing.T) {
 	}
 
 	// This should fail due to connection error
-	err := notifier.Send("Test Subject", "Test Body")
+	err := notifier.Send(context.Background(), "Test Subject", "Test Body")
 	if err == nil {
 		t.Error("Expected connection error, but got nil")
 	}
@@ -613,7 +614,7 @@ func TestHTTPNotifier_Send(t *testing.T) {
 			t.Fatalf("Failed to create notifier: %v", err)
 		}
 
-		err = notifier.Send("Test Subject", "Test Body")
+		err = notifier.Send(context.Background(), "Test Subject", "Test Body")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -631,7 +632,7 @@ func TestHTTPNotifier_Send(t *testing.T) {
 			t.Fatalf("Failed to create notifier: %v", err)
 		}
 
-		err = notifier.Send("Test Subject", "Test Body")
+		err = notifier.Send(context.Background(), "Test Subject", "Test Body")
 		if err == nil {
 			t.Fatal("Expected an error, got nil")
 		}
@@ -646,7 +647,7 @@ func TestHTTPNotifier_Send(t *testing.T) {
 			t.Fatalf("Failed to create notifier: %v", err)
 		}
 
-		err = notifier.Send("Test Subject", "Test Body")
+		err = notifier.Send(context.Background(), "Test Subject", "Test Body")
 		if err == nil {
 			t.Fatal("Expected a network error, got nil")
 		}
@@ -670,7 +671,7 @@ func TestLogNotifier_Send(t *testing.T) {
 		t.Fatalf("Failed to create notifier: %v", err)
 	}
 
-	err = notifier.Send("Test Subject", "Test Body")
+	err = notifier.Send(context.Background(), "Test Subject", "Test Body")
 	if err != nil {
 		t.Errorf("LogNotifier.Send should not return an error, got %v", err)
 	}

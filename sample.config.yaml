@@ -2,6 +2,8 @@
 settings:
   # How often to run the checks (e.g., "24h", "1h", "30m")
   check_interval: "24h"
+  # Specific daily time to run checks in HH:MM format (e.g., "09:00", "14:30"). If specified, takes precedence.
+  # check_time: "09:00"
   # Default retry mechanism for sites that don't override it
   retry:
     attempts: 3

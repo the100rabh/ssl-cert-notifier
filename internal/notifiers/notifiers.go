@@ -1,6 +1,7 @@
 package notifiers
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/the100rabh/ssl-cert-notifier/internal/config"
@@ -8,7 +9,7 @@ import (
 
 // Notifier is the interface that all notification channel implementations must satisfy.
 type Notifier interface {
-	Send(subject, body string) error
+	Send(ctx context.Context, subject, body string) error
 }
 
 // GetNotifier is a factory function that returns the appropriate notifier

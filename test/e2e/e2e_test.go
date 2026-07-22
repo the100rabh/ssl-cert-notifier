@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -112,7 +113,7 @@ func TestE2E_CertificateChecks(t *testing.T) {
 
 	// 4. Run the application's core logic directly from the app package
 	// We pass the real checker.Check function to get as close to reality as possible
-	app.RunChecks(cfg, initializedNotifiers, checker.Check)
+	app.RunChecks(context.Background(), cfg, initializedNotifiers, checker.Check)
 
 	// 5. Assert the results
 	// Allow some time for http requests to be processed

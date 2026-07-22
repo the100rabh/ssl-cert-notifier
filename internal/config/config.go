@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -18,6 +19,7 @@ type Config struct {
 // Settings defines global application settings
 type Settings struct {
 	CheckInterval string `yaml:"check_interval"`
+	CheckTime     string `yaml:"check_time,omitempty"`
 	Retry         Retry  `yaml:"retry"`
 }
 
@@ -47,10 +49,10 @@ type Notifier struct {
 
 // Website defines a site to be monitored
 type Website struct {
-	URL         string   `yaml:"url"`
+	URL             string   `yaml:"url"`
 	DaysUntilExpiry int      `yaml:"days_until_expiry"`
-	Notifiers   []string `yaml:"notifiers"`
-	Retry       *Retry   `yaml:"retry,omitempty"` // Pointer to allow for nil when not overridden
+	Notifiers       []string `yaml:"notifiers"`
+	Retry           *Retry   `yaml:"retry,omitempty"` // Pointer to allow for nil when not overridden
 }
 
 // Load reads a configuration file from the given path and parses it.
@@ -83,6 +85,76 @@ func (s *Settings) GetCheckIntervalDuration() (time.Duration, error) {
 		return 0, fmt.Errorf("check_interval must be a non-negative duration")
 	}
 	return duration, nil
+}
+
+// GetNextCheckTime calculates the next time the check should run based on CheckTime and a reference time.
+// Supported formats include "15:04", "15:04:05", "3:04PM", "3:04 PM", "03:04PM", "03:04 PM".
+func (s *Settings) GetNextCheckTime(now time.Time) (time.Time, error) {
+	timeStr := strings.TrimSpace(s.CheckTime)
+	if timeStr == "" {
+		return time.Time{}, nil
+	}
+
+	formats := []string{
+		"15:04",
+		"15:04:05",
+		"3:04PM",
+		"3:04 PM",
+		"03:04PM",
+		"03:04 PM",
+		"3:04pm",
+		"3:04 pm",
+		"03:04pm",
+		"03:04 pm",
+	}
+
+	timeStrUpper := strings.ToUpper(timeStr)
+
+	var parsedTime time.Time
+	var matched bool
+
+	for _, format := range formats {
+		t, err := time.Parse(format, timeStr)
+		if err == nil {
+			parsedTime = t
+			matched = true
+			break
+		}
+		t, err = time.Parse(format, timeStrUpper)
+		if err == nil {
+			parsedTime = t
+			matched = true
+			break
+		}
+	}
+
+	if !matched {
+		return time.Time{}, fmt.Errorf("invalid check_time format '%s': expected format like '09:00' or '14:30:00'", s.CheckTime)
+	}
+
+	hour, min, sec := parsedTime.Clock()
+
+	// Construct target time today in the same timezone location as `now`
+	targetToday := time.Date(now.Year(), now.Month(), now.Day(), hour, min, sec, 0, now.Location())
+
+	if targetToday.After(now) {
+		return targetToday, nil
+	}
+
+	// If target time today has passed or is equal, schedule for tomorrow
+	return targetToday.AddDate(0, 0, 1), nil
+}
+
+// GetCheckTimeDuration returns the duration from now until the next scheduled CheckTime.
+func (s *Settings) GetCheckTimeDuration(now time.Time) (time.Duration, error) {
+	if strings.TrimSpace(s.CheckTime) == "" {
+		return 0, nil
+	}
+	nextTime, err := s.GetNextCheckTime(now)
+	if err != nil {
+		return 0, err
+	}
+	return nextTime.Sub(now), nil
 }
 
 // GetInitialDelayDuration returns the initial retry delay as a time.Duration

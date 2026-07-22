@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -59,7 +60,7 @@ websites:
 	}
 
 	// Test that RunChecks can be called without panicking
-	app.RunChecks(cfg, initializedNotifiers, checker.Check)
+	app.RunChecks(context.Background(), cfg, initializedNotifiers, checker.Check)
 }
 
 func TestMainLogic_ZeroInterval(t *testing.T) {
@@ -105,7 +106,7 @@ websites:
 	initializedNotifiers, _ := app.InitializeNotifiers(cfg.Notifiers)
 
 	// Test that RunChecks can be called without panicking
-	app.RunChecks(cfg, initializedNotifiers, checker.Check)
+	app.RunChecks(context.Background(), cfg, initializedNotifiers, checker.Check)
 }
 
 func TestMainLogic_InvalidConfig(t *testing.T) {
@@ -114,4 +115,40 @@ func TestMainLogic_InvalidConfig(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error when loading non-existent config file")
 	}
+}
+
+func TestMainLogic_CheckTime(t *testing.T) {
+	tempConfigFile := "test_config_time.yaml"
+	configContent := `settings:
+  check_time: "14:30"
+  retry:
+    attempts: 1
+    initial_delay: "1ms"
+    backoff_factor: 1.0
+notifiers:
+  log_test:
+    type: log
+websites:
+  - url: "example.com:443"
+    days_until_expiry: 30
+    notifiers: ["log_test"]
+`
+
+	err := os.WriteFile(tempConfigFile, []byte(configContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create temp config file: %v", err)
+	}
+	defer os.Remove(tempConfigFile)
+
+	cfg, err := config.Load(tempConfigFile)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	if cfg.Settings.CheckTime != "14:30" {
+		t.Errorf("Expected check_time 14:30, got %s", cfg.Settings.CheckTime)
+	}
+
+	initializedNotifiers, _ := app.InitializeNotifiers(cfg.Notifiers)
+	app.RunChecks(context.Background(), cfg, initializedNotifiers, checker.Check)
 }
